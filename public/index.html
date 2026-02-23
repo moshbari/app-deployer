@@ -274,6 +274,8 @@
 <script>
 let state = {
   authenticated: false,
+  username: null,
+  authMode: 'login', // 'login' or 'register'
   apps: [],
   loading: false,
   showModal: false,
@@ -298,15 +300,30 @@ async function checkAuth() {
   try {
     const data = await api('/api/auth-check');
     state.authenticated = data.authenticated;
-  } catch { state.authenticated = false; }
+    state.username = data.username || null;
+  } catch { state.authenticated = false; state.username = null; }
   render();
 }
 
-async function login(password) {
+async function login(username, password) {
   state.loading = true; render();
   try {
-    await api('/api/login', { method: 'POST', body: { password } });
+    const data = await api('/api/login', { method: 'POST', body: { username, password } });
     state.authenticated = true;
+    state.username = data.username;
+    await loadApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+  state.loading = false; render();
+}
+
+async function register(username, password) {
+  state.loading = true; render();
+  try {
+    const data = await api('/api/register', { method: 'POST', body: { username, password } });
+    state.authenticated = true;
+    state.username = data.username;
     await loadApps();
   } catch (e) {
     showStatus('error', e.message);
@@ -317,6 +334,7 @@ async function login(password) {
 async function logout() {
   await api('/api/logout', { method: 'POST' });
   state.authenticated = false;
+  state.username = null;
   state.apps = [];
   render();
 }
@@ -447,21 +465,29 @@ function renderStatusBar() {
 }
 
 function renderLogin() {
+  var isRegister = state.authMode === 'register';
   return '<div class="header"><h1>\u{1F680} <span>App Deployer</span></h1>' +
     '<p>Deploy React apps to your server</p></div>' +
-    '<div class="login-card"><h2>Login</h2>' +
+    '<div class="login-card"><h2>' + (isRegister ? 'Create Account' : 'Login') + '</h2>' +
+    '<div class="field"><label>Username</label>' +
+    '<input type="text" id="login-user" placeholder="e.g. john" autocomplete="username" pattern="[a-z0-9-]+">' +
+    '<div class="field-hint">Lowercase letters, numbers, and dashes only</div></div>' +
     '<div class="field"><label>Password</label>' +
-    '<input type="password" id="login-pw" placeholder="Enter deploy password" autocomplete="current-password">' +
+    '<input type="password" id="login-pw" placeholder="Enter password" autocomplete="' + (isRegister ? 'new-password' : 'current-password') + '">' +
     '</div><button class="btn btn-primary" id="login-btn"' +
     (state.loading ? ' disabled' : '') + '>' +
-    (state.loading ? '<span class="spinner"></span>' : 'Login') +
-    '</button></div>';
+    (state.loading ? '<span class="spinner"></span>' : (isRegister ? 'Create Account' : 'Login')) +
+    '</button>' +
+    '<p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text2)">' +
+    (isRegister ? 'Already have an account? ' : 'Don\'t have an account? ') +
+    '<a href="#" id="toggle-auth" style="color:var(--accent);text-decoration:none">' +
+    (isRegister ? 'Login' : 'Register') + '</a></p></div>';
 }
 
 function renderDashboard() {
   var apps = state.apps;
   return '<div class="header"><h1>\u{1F680} <span>App Deployer</span></h1>' +
-    '<p>apps.heychatmate.com</p></div>' +
+    '<p>' + (state.username || '') + '</p></div>' +
     '<div class="top-bar"><span class="app-count">' + apps.length + ' app' + (apps.length !== 1 ? 's' : '') + ' deployed</span>' +
     '<button class="logout-btn" id="logout-btn">Logout</button></div>' +
     (apps.length === 0 ? renderEmptyState() : renderAppsList(apps)) +
@@ -555,10 +581,28 @@ function escapeHtml(str) {
 // ============================================
 function bindEvents() {
   var loginBtn = document.getElementById('login-btn');
+  var loginUser = document.getElementById('login-user');
   var loginPw = document.getElementById('login-pw');
   if (loginBtn) {
-    loginBtn.onclick = function() { login(loginPw.value); };
-    loginPw.onkeydown = function(e) { if (e.key === 'Enter') login(loginPw.value); };
+    var doAuth = function() {
+      if (state.authMode === 'register') {
+        register(loginUser.value, loginPw.value);
+      } else {
+        login(loginUser.value, loginPw.value);
+      }
+    };
+    loginBtn.onclick = doAuth;
+    loginPw.onkeydown = function(e) { if (e.key === 'Enter') doAuth(); };
+    loginUser.onkeydown = function(e) { if (e.key === 'Enter') loginPw.focus(); };
+  }
+
+  var toggleAuth = document.getElementById('toggle-auth');
+  if (toggleAuth) {
+    toggleAuth.onclick = function(e) {
+      e.preventDefault();
+      state.authMode = state.authMode === 'login' ? 'register' : 'login';
+      render();
+    };
   }
 
   var logoutBtn = document.getElementById('logout-btn');

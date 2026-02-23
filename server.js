@@ -11,9 +11,9 @@ const cookieParser = require('cookie-parser');
 const PORT = process.env.PORT || 3000;
 const HESTIA_USER = process.env.HESTIA_USER || 'heychatmate';
 const PARENT_DOMAIN = process.env.PARENT_DOMAIN || 'heychatmate.com';
-const DEPLOY_PASSWORD = process.env.DEPLOY_PASSWORD || 'changeme123';
 const APP_DIR = path.join(__dirname, 'data');
 const APPS_FILE = path.join(APP_DIR, 'apps.json');
+const USERS_FILE = path.join(APP_DIR, 'users.json');
 const TEMPLATE_DIR = path.join(__dirname, 'template');
 const WEB_ROOT = `/home/${HESTIA_USER}/web`;
 
@@ -68,6 +68,35 @@ function log(msg) {
 }
 
 // ============================================
+//  USER MANAGEMENT
+// ============================================
+function loadUsers() {
+  if (!fs.existsSync(USERS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); }
+  catch { return []; }
+}
+
+function saveUsers(users) {
+  fs.mkdirSync(APP_DIR, { recursive: true });
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+function hashPassword(password, salt) {
+  if (!salt) salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return { hash, salt };
+}
+
+function verifyPassword(password, hash, salt) {
+  const result = crypto.scryptSync(password, salt, 64).toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(result, 'hex'), Buffer.from(hash, 'hex'));
+}
+
+function sanitizeUsername(name) {
+  return name.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '').substring(0, 30);
+}
+
+// ============================================
 //  AUTH MIDDLEWARE
 // ============================================
 function auth(req, res, next) {
@@ -75,21 +104,64 @@ function auth(req, res, next) {
   if (!token || !sessions.has(token)) {
     return res.status(401).json({ error: 'Not logged in' });
   }
+  req.user = sessions.get(token).username;
   next();
 }
 
 // ============================================
 //  AUTH ROUTES
 // ============================================
-app.post('/api/login', (req, res) => {
-  const { password } = req.body;
-  if (password !== DEPLOY_PASSWORD) {
-    return res.status(401).json({ error: 'Wrong password' });
+app.post('/api/register', (req, res) => {
+  const { username: rawUsername, password } = req.body;
+  const username = sanitizeUsername(rawUsername || '');
+
+  if (!username || username.length < 2) {
+    return res.status(400).json({ error: 'Username must be at least 2 characters (lowercase letters, numbers, dashes)' });
   }
+  if (!password || password.length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  }
+
+  const users = loadUsers();
+  if (users.find(u => u.username === username)) {
+    return res.status(400).json({ error: 'Username already taken' });
+  }
+
+  const { hash, salt } = hashPassword(password);
+  users.push({ username, hash, salt, createdAt: new Date().toISOString() });
+  saveUsers(users);
+
+  // Auto-login after registration
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { created: Date.now() });
+  sessions.set(token, { username, created: Date.now() });
   res.cookie('deploy_token', token, { httpOnly: true, sameSite: 'strict', maxAge: 30 * 24 * 60 * 60 * 1000 });
-  res.json({ success: true });
+  log(`New user registered: ${username}`);
+  res.json({ success: true, username });
+});
+
+app.post('/api/login', (req, res) => {
+  const { username: rawUsername, password } = req.body;
+  const username = sanitizeUsername(rawUsername || '');
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+
+  const users = loadUsers();
+  const user = users.find(u => u.username === username);
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  if (!verifyPassword(password, user.hash, user.salt)) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, { username, created: Date.now() });
+  res.cookie('deploy_token', token, { httpOnly: true, sameSite: 'strict', maxAge: 30 * 24 * 60 * 60 * 1000 });
+  log(`User logged in: ${username}`);
+  res.json({ success: true, username });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -101,7 +173,11 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/auth-check', (req, res) => {
   const token = req.cookies?.deploy_token;
-  res.json({ authenticated: !!(token && sessions.has(token)) });
+  const session = token ? sessions.get(token) : null;
+  res.json({
+    authenticated: !!session,
+    username: session ? session.username : null,
+  });
 });
 
 // ============================================
@@ -124,9 +200,10 @@ function validateCode(code) {
 //  APP ROUTES
 // ============================================
 
-// List all apps
+// List apps for the logged-in user
 app.get('/api/apps', auth, (req, res) => {
-  res.json(loadApps());
+  const apps = loadApps().filter(a => a.owner === req.user);
+  res.json(apps);
 });
 
 // Deploy new app
@@ -192,6 +269,7 @@ app.post('/api/apps', auth, async (req, res) => {
       domain,
       title: title || name,
       url: `https://${domain}`,
+      owner: req.user,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deployCount: 1,
@@ -224,7 +302,7 @@ app.put('/api/apps/:name', auth, (req, res) => {
   }
 
   const apps = loadApps();
-  const appIndex = apps.findIndex(a => a.name === name);
+  const appIndex = apps.findIndex(a => a.name === name && a.owner === req.user);
   if (appIndex === -1) return res.status(404).json({ error: 'App not found' });
 
   if (buildLocks.has(name)) {
@@ -270,7 +348,7 @@ app.put('/api/apps/:name', auth, (req, res) => {
 app.delete('/api/apps/:name', auth, (req, res) => {
   const { name } = req.params;
   const apps = loadApps();
-  const appIndex = apps.findIndex(a => a.name === name);
+  const appIndex = apps.findIndex(a => a.name === name && a.owner === req.user);
   if (appIndex === -1) return res.status(404).json({ error: 'App not found' });
 
   const domain = getDomain(name);
@@ -291,7 +369,7 @@ app.delete('/api/apps/:name', auth, (req, res) => {
 app.get('/api/apps/:name', auth, (req, res) => {
   const { name } = req.params;
   const apps = loadApps();
-  const appData = apps.find(a => a.name === name);
+  const appData = apps.find(a => a.name === name && a.owner === req.user);
   if (!appData) return res.status(404).json({ error: 'App not found' });
 
   const codePath = path.join(APP_DIR, 'code', `${name}.jsx`);

@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Package files
-        run: tar -czf deployer.tar.gz --exclude='data' --exclude='node_modules' --exclude='.git' .
+        run: tar -czf deployer.tar.gz --exclude='deployer.tar.gz' --exclude='data' --exclude='node_modules' --exclude='.git' .
 
       - name: Copy to VPS
         uses: appleboy/scp-action@v0.1.7

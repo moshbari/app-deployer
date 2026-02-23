@@ -96,6 +96,19 @@ function sanitizeUsername(name) {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '').substring(0, 30);
 }
 
+// Auto-promote admin account on startup
+const ADMIN_USERNAME = process.env.ADMIN_USER || 'engrmoshbarigmailcom';
+(function promoteAdmin() {
+  const users = loadUsers();
+  const admin = users.find(u => u.username === ADMIN_USERNAME);
+  if (admin && !admin.isAdmin) {
+    admin.isAdmin = true;
+    if (admin.active === undefined) admin.active = true;
+    saveUsers(users);
+    log('Auto-promoted ' + ADMIN_USERNAME + ' to admin');
+  }
+})();
+
 // ============================================
 //  AUTH MIDDLEWARE
 // ============================================

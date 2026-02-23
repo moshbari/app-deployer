@@ -96,6 +96,19 @@ function sanitizeUsername(name) {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '').substring(0, 30);
 }
 
+// Auto-promote admin account on startup
+const ADMIN_USERNAME = process.env.ADMIN_USER || 'engrmoshbarigmailcom';
+(function promoteAdmin() {
+  const users = loadUsers();
+  const admin = users.find(u => u.username === ADMIN_USERNAME);
+  if (admin && !admin.isAdmin) {
+    admin.isAdmin = true;
+    if (admin.active === undefined) admin.active = true;
+    saveUsers(users);
+    log('Auto-promoted ' + ADMIN_USERNAME + ' to admin');
+  }
+})();
+
 // ============================================
 //  AUTH MIDDLEWARE
 // ============================================
@@ -104,7 +117,26 @@ function auth(req, res, next) {
   if (!token || !sessions.has(token)) {
     return res.status(401).json({ error: 'Not logged in' });
   }
-  req.user = sessions.get(token).username;
+  const session = sessions.get(token);
+  req.user = session.username;
+
+  // Check if user is still active
+  const users = loadUsers();
+  const user = users.find(u => u.username === req.user);
+  if (user && user.active === false) {
+    sessions.delete(token);
+    res.clearCookie('deploy_token');
+    return res.status(403).json({ error: 'Account deactivated. Contact admin.' });
+  }
+
+  req.isAdmin = user ? user.isAdmin === true : false;
+  next();
+}
+
+function adminOnly(req, res, next) {
+  if (!req.isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
   next();
 }
 
@@ -157,6 +189,10 @@ app.post('/api/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
+  if (user.active === false) {
+    return res.status(403).json({ error: 'Account deactivated. Contact admin.' });
+  }
+
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, { username, created: Date.now() });
   res.cookie('deploy_token', token, { httpOnly: true, sameSite: 'strict', maxAge: 30 * 24 * 60 * 60 * 1000 });
@@ -174,10 +210,82 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/auth-check', (req, res) => {
   const token = req.cookies?.deploy_token;
   const session = token ? sessions.get(token) : null;
+  let isAdmin = false;
+  if (session) {
+    const users = loadUsers();
+    const user = users.find(u => u.username === session.username);
+    isAdmin = user ? user.isAdmin === true : false;
+  }
   res.json({
     authenticated: !!session,
     username: session ? session.username : null,
+    isAdmin,
   });
+});
+
+// ============================================
+//  ADMIN ROUTES
+// ============================================
+
+// List all users (admin only)
+app.get('/api/admin/users', auth, adminOnly, (req, res) => {
+  const users = loadUsers();
+  const apps = loadApps();
+  const userList = users.map(u => ({
+    username: u.username,
+    isAdmin: u.isAdmin === true,
+    active: u.active !== false, // default true for existing users
+    createdAt: u.createdAt,
+    appCount: apps.filter(a => a.owner === u.username).length,
+  }));
+  res.json(userList);
+});
+
+// Toggle user active status (admin only)
+app.put('/api/admin/users/:username/toggle', auth, adminOnly, (req, res) => {
+  const { username } = req.params;
+  if (username === req.user) {
+    return res.status(400).json({ error: 'Cannot deactivate yourself' });
+  }
+  const users = loadUsers();
+  const user = users.find(u => u.username === username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.active = user.active === false ? true : false;
+  saveUsers(users);
+
+  // If deactivated, kill their sessions
+  if (user.active === false) {
+    for (const [token, session] of sessions) {
+      if (session.username === username) sessions.delete(token);
+    }
+  }
+
+  log(`Admin ${req.user} ${user.active ? 'activated' : 'deactivated'} user: ${username}`);
+  res.json({ success: true, active: user.active });
+});
+
+// Delete user (admin only)
+app.delete('/api/admin/users/:username', auth, adminOnly, (req, res) => {
+  const { username } = req.params;
+  if (username === req.user) {
+    return res.status(400).json({ error: 'Cannot delete yourself' });
+  }
+  const users = loadUsers();
+  const userIndex = users.findIndex(u => u.username === username);
+  if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
+
+  // Remove user
+  users.splice(userIndex, 1);
+  saveUsers(users);
+
+  // Kill their sessions
+  for (const [token, session] of sessions) {
+    if (session.username === username) sessions.delete(token);
+  }
+
+  log(`Admin ${req.user} deleted user: ${username}`);
+  res.json({ success: true });
 });
 
 // ============================================

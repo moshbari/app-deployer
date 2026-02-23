@@ -265,6 +265,74 @@
     margin-top: 4px;
     text-align: right;
   }
+
+  /* Tab bar for admin */
+  .tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 12px 0;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  /* Admin panel */
+  .user-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 10px;
+  }
+  .user-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .user-info { display: flex; align-items: center; gap: 8px; }
+  .user-name { font-size: 15px; font-weight: 600; }
+  .user-badge {
+    font-size: 9px; padding: 2px 7px; border-radius: 20px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge-admin { background: rgba(212,165,74,0.15); color: var(--gold); }
+  .badge-active { background: rgba(34,197,94,0.1); color: var(--green); }
+  .badge-inactive { background: rgba(239,68,68,0.1); color: var(--red); }
+  .user-meta {
+    font-size: 12px;
+    color: var(--text2);
+    display: flex;
+    gap: 14px;
+    margin-bottom: 12px;
+  }
+  .user-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .user-actions .btn { flex: 1; }
+  .btn-warn {
+    background: rgba(212,165,74,0.1);
+    color: var(--gold);
+    border: 1px solid rgba(212,165,74,0.2);
+  }
 </style>
 </head>
 <body>
@@ -275,13 +343,17 @@
 let state = {
   authenticated: false,
   username: null,
+  isAdmin: false,
   authMode: 'login', // 'login' or 'register'
+  activeTab: 'apps', // 'apps' or 'users'
   apps: [],
+  users: [],
   loading: false,
   showModal: false,
   modalMode: 'new',
   editApp: null,
   confirmDelete: null,
+  confirmDeleteUser: null,
   status: null,
 };
 
@@ -301,7 +373,8 @@ async function checkAuth() {
     const data = await api('/api/auth-check');
     state.authenticated = data.authenticated;
     state.username = data.username || null;
-  } catch { state.authenticated = false; state.username = null; }
+    state.isAdmin = data.isAdmin || false;
+  } catch { state.authenticated = false; state.username = null; state.isAdmin = false; }
   render();
 }
 
@@ -311,6 +384,9 @@ async function login(username, password) {
     const data = await api('/api/login', { method: 'POST', body: { username, password } });
     state.authenticated = true;
     state.username = data.username;
+    // Fetch admin status
+    const authData = await api('/api/auth-check');
+    state.isAdmin = authData.isAdmin || false;
     await loadApps();
   } catch (e) {
     showStatus('error', e.message);
@@ -324,6 +400,8 @@ async function register(username, password) {
     const data = await api('/api/register', { method: 'POST', body: { username, password } });
     state.authenticated = true;
     state.username = data.username;
+    const authData = await api('/api/auth-check');
+    state.isAdmin = authData.isAdmin || false;
     await loadApps();
   } catch (e) {
     showStatus('error', e.message);
@@ -335,7 +413,10 @@ async function logout() {
   await api('/api/logout', { method: 'POST' });
   state.authenticated = false;
   state.username = null;
+  state.isAdmin = false;
+  state.activeTab = 'apps';
   state.apps = [];
+  state.users = [];
   render();
 }
 
@@ -391,6 +472,37 @@ async function loadAppCode(name) {
     const data = await api('/api/apps/' + name);
     return data.code || '';
   } catch { return ''; }
+}
+
+// ============================================
+//  ADMIN FUNCTIONS
+// ============================================
+async function loadUsers() {
+  try { state.users = await api('/api/admin/users'); }
+  catch { state.users = []; }
+  render();
+}
+
+async function toggleUser(username) {
+  try {
+    const data = await api('/api/admin/users/' + username + '/toggle', { method: 'PUT' });
+    showStatus('success', username + ' ' + (data.active ? 'activated' : 'deactivated'));
+    await loadUsers();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+}
+
+async function deleteUser(username) {
+  showStatus('loading', 'Deleting ' + username + '...');
+  try {
+    await api('/api/admin/users/' + username, { method: 'DELETE' });
+    showStatus('success', username + ' deleted');
+    state.confirmDeleteUser = null;
+    await loadUsers();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
 }
 
 function showStatus(type, message) {
@@ -453,7 +565,8 @@ function render() {
     (state.authenticated ? renderDashboard() : renderLogin()) +
     '</div>' +
     (state.showModal ? renderModal() : '') +
-    (state.confirmDelete ? renderConfirm() : '');
+    (state.confirmDelete ? renderConfirm() : '') +
+    (state.confirmDeleteUser ? renderConfirmUser() : '');
   bindEvents();
 }
 
@@ -486,12 +599,26 @@ function renderLogin() {
 
 function renderDashboard() {
   var apps = state.apps;
-  return '<div class="header"><h1>\u{1F680} <span>App Deployer</span></h1>' +
-    '<p>' + (state.username || '') + '</p></div>' +
+  var html = '<div class="header"><h1>\u{1F680} <span>App Deployer</span></h1>' +
+    '<p>' + (state.username || '') + (state.isAdmin ? ' &middot; Admin' : '') + '</p></div>' +
     '<div class="top-bar"><span class="app-count">' + apps.length + ' app' + (apps.length !== 1 ? 's' : '') + ' deployed</span>' +
-    '<button class="logout-btn" id="logout-btn">Logout</button></div>' +
-    (apps.length === 0 ? renderEmptyState() : renderAppsList(apps)) +
-    '<button class="fab" id="new-app-btn">+</button>';
+    '<button class="logout-btn" id="logout-btn">Logout</button></div>';
+
+  if (state.isAdmin) {
+    html += '<div class="tab-bar">' +
+      '<button class="tab-btn' + (state.activeTab === 'apps' ? ' active' : '') + '" id="tab-apps">My Apps</button>' +
+      '<button class="tab-btn' + (state.activeTab === 'users' ? ' active' : '') + '" id="tab-users">Users</button>' +
+      '</div>';
+  }
+
+  if (state.activeTab === 'users' && state.isAdmin) {
+    html += renderUsersPanel();
+  } else {
+    html += (apps.length === 0 ? renderEmptyState() : renderAppsList(apps)) +
+      '<button class="fab" id="new-app-btn">+</button>';
+  }
+
+  return html;
 }
 
 function renderEmptyState() {
@@ -518,6 +645,36 @@ function renderAppCard(app) {
     '<button class="btn btn-ghost btn-sm" onclick="window.open(\'' + app.url + '\',\'_blank\')">Open</button>' +
     '<button class="btn btn-danger btn-sm del-btn" data-name="' + app.name + '" data-title="' + (app.title || app.name) + '">Delete</button>' +
     '</div></div>';
+}
+
+function renderUsersPanel() {
+  var users = state.users;
+  if (users.length === 0) {
+    return '<div class="empty-state"><div class="icon">&#128101;</div>' +
+      '<h3>No users</h3><p>Loading users...</p></div>';
+  }
+  return '<div class="apps-grid">' + users.map(function(u) {
+    var isMe = u.username === state.username;
+    var active = u.active !== false;
+    var created = new Date(u.createdAt).toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    });
+    return '<div class="user-card">' +
+      '<div class="user-card-header"><div class="user-info">' +
+      '<span class="user-name">' + u.username + (isMe ? ' (you)' : '') + '</span>' +
+      (u.isAdmin ? '<span class="user-badge badge-admin">Admin</span>' : '') +
+      '<span class="user-badge ' + (active ? 'badge-active' : 'badge-inactive') + '">' +
+        (active ? 'Active' : 'Inactive') + '</span>' +
+      '</div></div>' +
+      '<div class="user-meta"><span>Joined: ' + created + '</span>' +
+      '<span>Apps: ' + u.appCount + '</span></div>' +
+      (!isMe ? '<div class="user-actions">' +
+        '<button class="btn ' + (active ? 'btn-warn' : 'btn-primary') + ' btn-sm toggle-user-btn" data-username="' + u.username + '">' +
+          (active ? 'Deactivate' : 'Activate') + '</button>' +
+        '<button class="btn btn-danger btn-sm del-user-btn" data-username="' + u.username + '">Delete</button>' +
+        '</div>' : '') +
+      '</div>';
+  }).join('') + '</div>';
 }
 
 function renderModal() {
@@ -569,6 +726,17 @@ function renderConfirm() {
     '<div class="confirm-actions">' +
     '<button class="btn btn-ghost btn-sm" id="cancel-delete">Cancel</button>' +
     '<button class="btn btn-danger btn-sm" id="confirm-delete">Delete</button>' +
+    '</div></div></div>';
+}
+
+function renderConfirmUser() {
+  var u = state.confirmDeleteUser;
+  return '<div class="confirm-overlay"><div class="confirm-box">' +
+    '<h3>Delete user ' + u.username + '?</h3>' +
+    '<p>This removes the account permanently. Their apps will remain but become unmanaged.</p>' +
+    '<div class="confirm-actions">' +
+    '<button class="btn btn-ghost btn-sm" id="cancel-delete-user">Cancel</button>' +
+    '<button class="btn btn-danger btn-sm" id="confirm-delete-user">Delete</button>' +
     '</div></div></div>';
 }
 
@@ -669,11 +837,34 @@ function bindEvents() {
   var btnClear = document.getElementById('btn-clear');
   if (btnClear) btnClear.onclick = clearCode;
 
-  // Confirm delete
+  // Confirm delete app
   var cancelDel = document.getElementById('cancel-delete');
   if (cancelDel) cancelDel.onclick = function() { state.confirmDelete = null; render(); };
   var confirmDel = document.getElementById('confirm-delete');
   if (confirmDel) confirmDel.onclick = function() { deleteApp(state.confirmDelete.name); };
+
+  // Admin tabs
+  var tabApps = document.getElementById('tab-apps');
+  if (tabApps) tabApps.onclick = function() { state.activeTab = 'apps'; render(); };
+  var tabUsers = document.getElementById('tab-users');
+  if (tabUsers) tabUsers.onclick = function() { state.activeTab = 'users'; loadUsers(); };
+
+  // Admin user actions
+  document.querySelectorAll('.toggle-user-btn').forEach(function(btn) {
+    btn.onclick = function() { toggleUser(btn.dataset.username); };
+  });
+  document.querySelectorAll('.del-user-btn').forEach(function(btn) {
+    btn.onclick = function() {
+      state.confirmDeleteUser = { username: btn.dataset.username };
+      render();
+    };
+  });
+
+  // Confirm delete user
+  var cancelDelUser = document.getElementById('cancel-delete-user');
+  if (cancelDelUser) cancelDelUser.onclick = function() { state.confirmDeleteUser = null; render(); };
+  var confirmDelUser = document.getElementById('confirm-delete-user');
+  if (confirmDelUser) confirmDelUser.onclick = function() { deleteUser(state.confirmDeleteUser.username); };
 }
 
 // INIT

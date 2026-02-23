@@ -1,0 +1,13 @@
+{
+  "name": "app-deployer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "setup-template": "cd template && npm install"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cookie-parser": "^1.4.6"
+  }
+}

@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>App Deployer</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1e2a3a;
+    --text: #e2e8f0;
+    --text2: #8892a4;
+    --accent: #3b82f6;
+    --accent2: #2563eb;
+    --green: #22c55e;
+    --red: #ef4444;
+    --gold: #d4a54a;
+    --radius: 14px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 600px; margin: 0 auto; padding: 0 16px 100px; }
+
+  .header { padding: 48px 0 24px; text-align: center; }
+  .header h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+  .header h1 span { color: var(--accent); }
+  .header p { color: var(--text2); font-size: 13px; margin-top: 4px; }
+
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px 24px;
+    margin-top: 24px;
+  }
+  .login-card h2 { font-size: 18px; margin-bottom: 20px; font-weight: 600; }
+
+  input, textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  textarea {
+    min-height: 200px;
+    resize: vertical;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .field { margin-bottom: 16px; }
+  .field-hint { font-size: 11px; color: var(--text2); margin-top: 4px; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 24px;
+    border: none;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-danger {
+    background: rgba(239,68,68,0.1);
+    color: var(--red);
+    border: 1px solid rgba(239,68,68,0.2);
+  }
+  .btn-ghost {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-sm { padding: 8px 14px; font-size: 13px; width: auto; }
+
+  .apps-grid { display: flex; flex-direction: column; gap: 12px; }
+  .app-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    transition: border-color 0.2s;
+  }
+  .app-card:hover { border-color: #2a3a4a; }
+  .app-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  .app-name { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+  .app-badge {
+    font-size: 10px; padding: 3px 8px; border-radius: 20px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    background: rgba(34,197,94,0.1); color: var(--green);
+  }
+  .app-url {
+    display: block; font-size: 13px; color: var(--accent);
+    text-decoration: none; margin-bottom: 12px; word-break: break-all;
+  }
+  .app-meta { font-size: 11px; color: var(--text2); display: flex; gap: 16px; }
+  .app-actions {
+    display: flex; gap: 8px; margin-top: 14px;
+    padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .app-actions .btn { flex: 1; }
+
+  .fab {
+    position: fixed; bottom: 24px; right: 24px;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none;
+    font-size: 28px; cursor: pointer;
+    box-shadow: 0 4px 20px rgba(59,130,246,0.4);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.2s; z-index: 100;
+  }
+  .fab:hover { transform: scale(1.08); }
+
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: flex-end; justify-content: center;
+    z-index: 200; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .modal-overlay.active { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    width: 100%; max-width: 600px;
+    max-height: 90vh; overflow-y: auto;
+    padding: 24px 20px 40px;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .modal-overlay.active .modal { transform: translateY(0); }
+  .modal-handle {
+    width: 36px; height: 4px;
+    background: var(--border); border-radius: 2px;
+    margin: 0 auto 20px;
+  }
+  .modal h2 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+
+  .status-bar {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 12px 16px; text-align: center;
+    font-size: 13px; font-weight: 500; z-index: 300;
+    transform: translateY(-100%); transition: transform 0.3s;
+  }
+  .status-bar.show { transform: translateY(0); }
+  .status-bar.success { background: var(--green); color: #fff; }
+  .status-bar.error { background: var(--red); color: #fff; }
+  .status-bar.loading { background: var(--accent); color: #fff; }
+
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--text2);
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+  .empty-state h3 { font-size: 18px; color: var(--text); margin-bottom: 6px; }
+  .empty-state p { font-size: 14px; }
+
+  .confirm-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 400; padding: 20px;
+  }
+  .confirm-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px;
+    max-width: 340px; width: 100%; text-align: center;
+  }
+  .confirm-box h3 { margin-bottom: 8px; font-size: 17px; }
+  .confirm-box p { color: var(--text2); font-size: 14px; margin-bottom: 20px; }
+  .confirm-actions { display: flex; gap: 10px; }
+  .confirm-actions .btn { flex: 1; }
+
+  .top-bar {
+    display: flex; justify-content: space-between;
+    align-items: center; padding: 12px 0;
+  }
+  .top-bar .app-count { font-size: 13px; color: var(--text2); }
+  .logout-btn {
+    background: none; border: none; color: var(--text2);
+    font-size: 13px; cursor: pointer; font-family: inherit; padding: 6px 0;
+  }
+
+  .spinner {
+    display: inline-block; width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Code toolbar */
+  .code-toolbar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    justify-content: flex-end;
+  }
+  .code-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text2);
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .code-toolbar-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .code-toolbar-btn:active {
+    transform: scale(0.96);
+  }
+  .code-toolbar-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .code-char-count {
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 4px;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+let state = {
+  authenticated: false,
+  apps: [],
+  loading: false,
+  showModal: false,
+  modalMode: 'new',
+  editApp: null,
+  confirmDelete: null,
+  status: null,
+};
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function checkAuth() {
+  try {
+    const data = await api('/api/auth-check');
+    state.authenticated = data.authenticated;
+  } catch { state.authenticated = false; }
+  render();
+}
+
+async function login(password) {
+  state.loading = true; render();
+  try {
+    await api('/api/login', { method: 'POST', body: { password } });
+    state.authenticated = true;
+    await loadApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+  state.loading = false; render();
+}
+
+async function logout() {
+  await api('/api/logout', { method: 'POST' });
+  state.authenticated = false;
+  state.apps = [];
+  render();
+}
+
+async function loadApps() {
+  try { state.apps = await api('/api/apps'); }
+  catch { state.apps = []; }
+  render();
+}
+
+async function deployApp(name, code, title) {
+  state.loading = true; render();
+  showStatus('loading', 'Deploying ' + name + '...');
+  try {
+    const data = await api('/api/apps', { method: 'POST', body: { name, code, title } });
+    showStatus('success', 'Live at ' + data.url);
+    state.showModal = false;
+    await loadApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+  state.loading = false; render();
+}
+
+async function updateApp(name, code, title) {
+  state.loading = true; render();
+  showStatus('loading', 'Updating ' + name + '...');
+  try {
+    const data = await api('/api/apps/' + name, { method: 'PUT', body: { code, title } });
+    showStatus('success', 'Updated! ' + data.url);
+    state.showModal = false;
+    state.editApp = null;
+    await loadApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+  state.loading = false; render();
+}
+
+async function deleteApp(name) {
+  showStatus('loading', 'Deleting ' + name + '...');
+  try {
+    await api('/api/apps/' + name, { method: 'DELETE' });
+    showStatus('success', name + ' deleted');
+    state.confirmDelete = null;
+    await loadApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+}
+
+async function loadAppCode(name) {
+  try {
+    const data = await api('/api/apps/' + name);
+    return data.code || '';
+  } catch { return ''; }
+}
+
+function showStatus(type, message) {
+  state.status = { type, message };
+  render();
+  if (type !== 'loading') {
+    setTimeout(function() { state.status = null; render(); }, 4000);
+  }
+}
+
+// ============================================
+//  CLIPBOARD HELPERS
+// ============================================
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    const ta = document.getElementById('app-code');
+    if (ta && text) {
+      ta.value = text;
+      ta.dispatchEvent(new Event('input'));
+      updateCharCount();
+      showStatus('success', 'Pasted ' + text.length.toLocaleString() + ' characters');
+    }
+  } catch (e) {
+    showStatus('error', 'Clipboard access denied. Long-press in the text box to paste manually.');
+  }
+}
+
+function selectAllCode() {
+  const ta = document.getElementById('app-code');
+  if (ta) {
+    ta.focus();
+    ta.select();
+  }
+}
+
+function clearCode() {
+  const ta = document.getElementById('app-code');
+  if (ta) {
+    ta.value = '';
+    updateCharCount();
+  }
+}
+
+function updateCharCount() {
+  const ta = document.getElementById('app-code');
+  const counter = document.getElementById('char-count');
+  if (ta && counter) {
+    const len = ta.value.length;
+    counter.textContent = len > 0 ? len.toLocaleString() + ' chars' : '';
+  }
+}
+
+// ============================================
+//  RENDER
+// ============================================
+function render() {
+  var el = document.getElementById('app');
+  el.innerHTML = renderStatusBar() + '<div class="container">' +
+    (state.authenticated ? renderDashboard() : renderLogin()) +
+    '</div>' +
+    (state.showModal ? renderModal() : '') +
+    (state.confirmDelete ? renderConfirm() : '');
+  bindEvents();
+}
+
+function renderStatusBar() {
+  if (!state.status) return '<div class="status-bar"></div>';
+  return '<div class="status-bar show ' + state.status.type + '">' +
+    (state.status.type === 'loading' ? '<span class="spinner"></span> ' : '') +
+    state.status.message + '</div>';
+}
+
+function renderLogin() {
+  return '<div class="header"><h1>\u{1F680} <span>App Deployer</span></h1>' +
+    '<p>Deploy React apps to your server</p></div>' +
+    '<div class="login-card"><h2>Login</h2>' +
+    '<div class="field"><label>Password</label>' +
+    '<input type="password" id="login-pw" placeholder="Enter deploy password" autocomplete="current-password">' +
+    '</div><button class="btn btn-primary" id="login-btn"' +
+    (state.loading ? ' disabled' : '') + '>' +
+    (state.loading ? '<span class="spinner"></span>' : 'Login') +
+    '</button></div>';
+}
+
+function renderDashboard() {
+  var apps = state.apps;
+  return '<div class="header"><h1>\u{1F680} <span>App Deployer</span></h1>' +
+    '<p>apps.heychatmate.com</p></div>' +
+    '<div class="top-bar"><span class="app-count">' + apps.length + ' app' + (apps.length !== 1 ? 's' : '') + ' deployed</span>' +
+    '<button class="logout-btn" id="logout-btn">Logout</button></div>' +
+    (apps.length === 0 ? renderEmptyState() : renderAppsList(apps)) +
+    '<button class="fab" id="new-app-btn">+</button>';
+}
+
+function renderEmptyState() {
+  return '<div class="empty-state"><div class="icon">\u{1F4E6}</div>' +
+    '<h3>No apps yet</h3><p>Tap + to deploy your first app</p></div>';
+}
+
+function renderAppsList(apps) {
+  return '<div class="apps-grid">' + apps.map(renderAppCard).join('') + '</div>';
+}
+
+function renderAppCard(app) {
+  var updated = new Date(app.updatedAt).toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+  return '<div class="app-card">' +
+    '<div class="app-card-header"><span class="app-name">' + (app.title || app.name) + '</span>' +
+    '<span class="app-badge">Live</span></div>' +
+    '<a class="app-url" href="' + app.url + '" target="_blank">' + app.domain + '</a>' +
+    '<div class="app-meta"><span>Updated: ' + updated + '</span>' +
+    '<span>Deploys: ' + (app.deployCount || 1) + '</span></div>' +
+    '<div class="app-actions">' +
+    '<button class="btn btn-ghost btn-sm edit-btn" data-name="' + app.name + '" data-title="' + (app.title || app.name) + '">Edit</button>' +
+    '<button class="btn btn-ghost btn-sm" onclick="window.open(\'' + app.url + '\',\'_blank\')">Open</button>' +
+    '<button class="btn btn-danger btn-sm del-btn" data-name="' + app.name + '" data-title="' + (app.title || app.name) + '">Delete</button>' +
+    '</div></div>';
+}
+
+function renderModal() {
+  var isEdit = state.modalMode === 'edit';
+  var title = isEdit ? 'Update: ' + (state.editApp ? state.editApp.title : '') : 'Deploy New App';
+  var editCode = isEdit ? (state.editApp ? state.editApp.code || '' : '') : '';
+
+  var nameField = '';
+  if (!isEdit) {
+    nameField = '<div class="field"><label>App Name</label>' +
+      '<input type="text" id="app-name" placeholder="e.g. taraweeh" autocomplete="off" pattern="[a-z0-9-]+">' +
+      '<div class="field-hint">Lowercase, no spaces \u2192 becomes appname.heychatmate.com</div></div>';
+  }
+
+  var toolbar = '<div class="code-toolbar">' +
+    '<button class="code-toolbar-btn" id="btn-select-all" title="Select All">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>' +
+      'Select All</button>' +
+    '<button class="code-toolbar-btn" id="btn-paste" title="Paste from clipboard">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/></svg>' +
+      'Paste</button>' +
+    '<button class="code-toolbar-btn" id="btn-clear" title="Clear">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      'Clear</button>' +
+    '</div>';
+
+  return '<div class="modal-overlay active" id="modal-overlay">' +
+    '<div class="modal"><div class="modal-handle"></div>' +
+    '<h2>' + title + '</h2>' +
+    nameField +
+    '<div class="field"><label>React Code</label>' +
+    toolbar +
+    '<textarea id="app-code" placeholder="Paste your React component code here..." oninput="updateCharCount()">' + escapeHtml(editCode) + '</textarea>' +
+    '<div class="code-char-count" id="char-count">' + (editCode.length > 0 ? editCode.length.toLocaleString() + ' chars' : '') + '</div>' +
+    '<div class="field-hint">Paste the full component from Claude (with imports and export default)</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;margin-top:8px;">' +
+    '<button class="btn btn-ghost" id="cancel-modal" style="flex:1">Cancel</button>' +
+    '<button class="btn btn-primary" id="deploy-btn" style="flex:2"' + (state.loading ? ' disabled' : '') + '>' +
+    (state.loading ? '<span class="spinner"></span>' : (isEdit ? '\u{1F504} Update' : '\u{1F680} Deploy')) +
+    '</button></div></div></div>';
+}
+
+function renderConfirm() {
+  var app = state.confirmDelete;
+  return '<div class="confirm-overlay"><div class="confirm-box">' +
+    '<h3>Delete ' + app.title + '?</h3>' +
+    '<p>This removes the app and its subdomain. Cannot be undone.</p>' +
+    '<div class="confirm-actions">' +
+    '<button class="btn btn-ghost btn-sm" id="cancel-delete">Cancel</button>' +
+    '<button class="btn btn-danger btn-sm" id="confirm-delete">Delete</button>' +
+    '</div></div></div>';
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ============================================
+//  EVENT BINDING
+// ============================================
+function bindEvents() {
+  var loginBtn = document.getElementById('login-btn');
+  var loginPw = document.getElementById('login-pw');
+  if (loginBtn) {
+    loginBtn.onclick = function() { login(loginPw.value); };
+    loginPw.onkeydown = function(e) { if (e.key === 'Enter') login(loginPw.value); };
+  }
+
+  var logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.onclick = logout;
+
+  var newBtn = document.getElementById('new-app-btn');
+  if (newBtn) newBtn.onclick = function() {
+    state.showModal = true;
+    state.modalMode = 'new';
+    state.editApp = null;
+    render();
+  };
+
+  document.querySelectorAll('.edit-btn').forEach(function(btn) {
+    btn.onclick = async function() {
+      var name = btn.dataset.name;
+      var title = btn.dataset.title;
+      showStatus('loading', 'Loading code...');
+      var code = await loadAppCode(name);
+      state.status = null;
+      state.showModal = true;
+      state.modalMode = 'edit';
+      state.editApp = { name: name, title: title, code: code };
+      render();
+    };
+  });
+
+  document.querySelectorAll('.del-btn').forEach(function(btn) {
+    btn.onclick = function() {
+      state.confirmDelete = { name: btn.dataset.name, title: btn.dataset.title };
+      render();
+    };
+  });
+
+  var modalOverlay = document.getElementById('modal-overlay');
+  if (modalOverlay) {
+    modalOverlay.onclick = function(e) {
+      if (e.target === modalOverlay) { state.showModal = false; state.editApp = null; render(); }
+    };
+  }
+  var cancelModal = document.getElementById('cancel-modal');
+  if (cancelModal) cancelModal.onclick = function() { state.showModal = false; state.editApp = null; render(); };
+
+  var deployBtn = document.getElementById('deploy-btn');
+  if (deployBtn) {
+    deployBtn.onclick = function() {
+      var code = document.getElementById('app-code').value;
+      if (state.modalMode === 'edit') {
+        updateApp(state.editApp.name, code, state.editApp.title);
+      } else {
+        var name = document.getElementById('app-name').value;
+        deployApp(name, code, name);
+      }
+    };
+  }
+
+  // Code toolbar buttons
+  var btnPaste = document.getElementById('btn-paste');
+  if (btnPaste) btnPaste.onclick = pasteFromClipboard;
+
+  var btnSelectAll = document.getElementById('btn-select-all');
+  if (btnSelectAll) btnSelectAll.onclick = selectAllCode;
+
+  var btnClear = document.getElementById('btn-clear');
+  if (btnClear) btnClear.onclick = clearCode;
+
+  // Confirm delete
+  var cancelDel = document.getElementById('cancel-delete');
+  if (cancelDel) cancelDel.onclick = function() { state.confirmDelete = null; render(); };
+  var confirmDel = document.getElementById('confirm-delete');
+  if (confirmDel) confirmDel.onclick = function() { deleteApp(state.confirmDelete.name); };
+}
+
+// INIT
+checkAuth().then(function() {
+  if (state.authenticated) loadApps();
+});
+</script>
+</body>
+</html>

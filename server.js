@@ -18,6 +18,18 @@ const TEMPLATE_DIR = path.join(__dirname, 'template');
 const WEB_ROOT = `/home/${HESTIA_USER}/web`;
 
 // ============================================
+//  CRASH RECOVERY
+// ============================================
+process.on('uncaughtException', (err) => {
+  console.error(`[${new Date().toISOString()}] UNCAUGHT EXCEPTION: ${err.message}`);
+  console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error(`[${new Date().toISOString()}] UNHANDLED REJECTION: ${reason}`);
+});
+
+// ============================================
 //  APP SETUP
 // ============================================
 const app = express();
@@ -557,6 +569,13 @@ function deployFiles(buildDir, domain) {
 
   return result;
 }
+
+// ============================================
+//  HEALTH CHECK
+// ============================================
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
 
 // ============================================
 //  SPA FALLBACK

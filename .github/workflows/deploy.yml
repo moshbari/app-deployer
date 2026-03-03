@@ -43,6 +43,10 @@ jobs:
             # Install dependencies if needed
             npm install --production 2>&1 | tail -1
 
+            # Install template dependencies for app builds
+            cd /opt/deployer/template && npm install 2>&1 | tail -1
+            cd /opt/deployer
+
             # Fix ownership
             chown -R heychatmate:heychatmate /opt/deployer
 
@@ -51,6 +55,10 @@ jobs:
 
             # Cleanup
             rm -f /tmp/deployer.tar.gz
+
+            # Wait for server to start then verify health
+            sleep 2
+            curl -sf http://127.0.0.1:3000/health || echo "⚠️ Health check failed!"
 
             echo "✅ Deployed!"
             systemctl status deployer --no-pager | head -3

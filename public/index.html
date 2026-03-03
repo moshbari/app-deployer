@@ -355,6 +355,7 @@ let state = {
   confirmDelete: null,
   confirmDeleteUser: null,
   status: null,
+  draftCode: '',
 };
 
 async function api(url, opts = {}) {
@@ -519,11 +520,8 @@ function showStatus(type, message) {
 async function pasteFromClipboard() {
   try {
     const text = await navigator.clipboard.readText();
-    const ta = document.getElementById('app-code');
-    if (ta && text) {
-      ta.value = text;
-      ta.dispatchEvent(new Event('input'));
-      updateCharCount();
+    if (text) {
+      state.draftCode = text;
       showStatus('success', 'Pasted ' + text.length.toLocaleString() + ' characters');
     }
   } catch (e) {
@@ -540,6 +538,7 @@ function selectAllCode() {
 }
 
 function clearCode() {
+  state.draftCode = '';
   const ta = document.getElementById('app-code');
   if (ta) {
     ta.value = '';
@@ -680,7 +679,7 @@ function renderUsersPanel() {
 function renderModal() {
   var isEdit = state.modalMode === 'edit';
   var title = isEdit ? 'Update: ' + (state.editApp ? state.editApp.title : '') : 'Deploy New App';
-  var editCode = isEdit ? (state.editApp ? state.editApp.code || '' : '') : '';
+  var editCode = state.draftCode || (isEdit ? (state.editApp ? state.editApp.code || '' : '') : '');
 
   var nameField = '';
   if (!isEdit) {
@@ -781,6 +780,7 @@ function bindEvents() {
     state.showModal = true;
     state.modalMode = 'new';
     state.editApp = null;
+    state.draftCode = '';
     render();
   };
 
@@ -808,16 +808,17 @@ function bindEvents() {
   var modalOverlay = document.getElementById('modal-overlay');
   if (modalOverlay) {
     modalOverlay.onclick = function(e) {
-      if (e.target === modalOverlay) { state.showModal = false; state.editApp = null; render(); }
+      if (e.target === modalOverlay) { state.showModal = false; state.editApp = null; state.draftCode = ''; render(); }
     };
   }
   var cancelModal = document.getElementById('cancel-modal');
-  if (cancelModal) cancelModal.onclick = function() { state.showModal = false; state.editApp = null; render(); };
+  if (cancelModal) cancelModal.onclick = function() { state.showModal = false; state.editApp = null; state.draftCode = ''; render(); };
 
   var deployBtn = document.getElementById('deploy-btn');
   if (deployBtn) {
     deployBtn.onclick = function() {
       var code = document.getElementById('app-code').value;
+      state.draftCode = '';
       if (state.modalMode === 'edit') {
         updateApp(state.editApp.name, code, state.editApp.title);
       } else {
@@ -825,6 +826,14 @@ function bindEvents() {
         deployApp(name, code, name);
       }
     };
+  }
+
+  // Keep draftCode in sync with manual textarea edits
+  var appCodeTa = document.getElementById('app-code');
+  if (appCodeTa) {
+    appCodeTa.addEventListener('input', function() {
+      state.draftCode = appCodeTa.value;
+    });
   }
 
   // Code toolbar buttons

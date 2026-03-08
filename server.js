@@ -13,6 +13,7 @@ const HESTIA_USER = process.env.HESTIA_USER || 'heychatmate';
 const PARENT_DOMAIN = process.env.PARENT_DOMAIN || 'heychatmate.com';
 const APP_DIR = path.join(__dirname, 'data');
 const APPS_FILE = path.join(APP_DIR, 'apps.json');
+const HTML_APPS_FILE = path.join(APP_DIR, 'html-apps.json');
 const USERS_FILE = path.join(APP_DIR, 'users.json');
 const TEMPLATE_DIR = path.join(__dirname, 'template');
 const WEB_ROOT = `/home/${HESTIA_USER}/web`;
@@ -52,6 +53,17 @@ function loadApps() {
 function saveApps(apps) {
   fs.mkdirSync(APP_DIR, { recursive: true });
   fs.writeFileSync(APPS_FILE, JSON.stringify(apps, null, 2));
+}
+
+function loadHtmlApps() {
+  if (!fs.existsSync(HTML_APPS_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(HTML_APPS_FILE, 'utf8')); }
+  catch { return []; }
+}
+
+function saveHtmlApps(apps) {
+  fs.mkdirSync(APP_DIR, { recursive: true });
+  fs.writeFileSync(HTML_APPS_FILE, JSON.stringify(apps, null, 2));
 }
 
 function sanitizeName(name) {
@@ -569,6 +581,170 @@ function deployFiles(buildDir, domain) {
 
   return result;
 }
+
+// ============================================
+//  HTML PAGES ROUTES
+// ============================================
+
+// List HTML apps for the logged-in user
+app.get('/api/html-apps', auth, (req, res) => {
+  const apps = loadHtmlApps().filter(a => a.owner === req.user);
+  res.json(apps);
+});
+
+// Deploy new HTML page
+app.post('/api/html-apps', auth, (req, res) => {
+  const { name: rawName, code, title } = req.body;
+  const name = sanitizeName(rawName || '');
+
+  if (!name) return res.status(400).json({ error: 'Page name is required' });
+  if (!code) return res.status(400).json({ error: 'HTML code is required' });
+  if (name.length < 2) return res.status(400).json({ error: 'Name too short (min 2 chars)' });
+
+  // Validate it looks like HTML
+  const trimmed = code.trim();
+  if (!trimmed.startsWith('<!DOCTYPE') && !trimmed.startsWith('<html') && !trimmed.startsWith('<') ) {
+    return res.status(400).json({ error: 'Code does not look like HTML. It should start with <!DOCTYPE html> or an HTML tag.' });
+  }
+
+  // Check name not taken by React apps or other HTML apps
+  const reactApps = loadApps();
+  const htmlApps = loadHtmlApps();
+  if (reactApps.find(a => a.name === name)) {
+    return res.status(400).json({ error: `Name "${name}" is already used by a React app.` });
+  }
+  if (htmlApps.find(a => a.name === name)) {
+    return res.status(400).json({ error: `HTML page "${name}" already exists. Use update instead.` });
+  }
+
+  const domain = getDomain(name);
+
+  try {
+    log(`Deploying new HTML page: ${name} → ${domain}`);
+
+    // 1. Create domain in HestiaCP
+    const domainResult = createDomain(domain);
+    if (!domainResult.success) {
+      return res.status(500).json({ error: 'Domain creation failed', details: domainResult.output });
+    }
+
+    // 2. Write HTML directly to public_html
+    const publicHtml = getPublicHtml(domain);
+    fs.mkdirSync(publicHtml, { recursive: true });
+    fs.writeFileSync(path.join(publicHtml, 'index.html'), code);
+    runCmd(`sudo chown -R ${HESTIA_USER}:${HESTIA_USER} ${publicHtml}`);
+
+    // 3. Setup SSL (non-blocking)
+    setupSSL(domain);
+
+    // 4. Save HTML code backup
+    const codeDest = path.join(APP_DIR, 'html-code');
+    fs.mkdirSync(codeDest, { recursive: true });
+    fs.writeFileSync(path.join(codeDest, `${name}.html`), code);
+
+    // 5. Save record
+    htmlApps.push({
+      name,
+      domain,
+      title: title || name,
+      url: `https://${domain}`,
+      owner: req.user,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deployCount: 1,
+    });
+    saveHtmlApps(htmlApps);
+
+    log(`✅ HTML page deployed: https://${domain}`);
+    res.json({ success: true, url: `https://${domain}`, domain });
+
+  } catch (e) {
+    log(`❌ HTML deploy failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Update existing HTML page
+app.put('/api/html-apps/:name', auth, (req, res) => {
+  const { name } = req.params;
+  const { code, title } = req.body;
+
+  if (!code) return res.status(400).json({ error: 'HTML code is required' });
+
+  const htmlApps = loadHtmlApps();
+  const appIndex = htmlApps.findIndex(a => a.name === name && a.owner === req.user);
+  if (appIndex === -1) return res.status(404).json({ error: 'HTML page not found' });
+
+  const domain = getDomain(name);
+
+  try {
+    log(`Updating HTML page: ${name}`);
+
+    // Write HTML directly to public_html
+    const publicHtml = getPublicHtml(domain);
+    fs.mkdirSync(publicHtml, { recursive: true });
+    fs.writeFileSync(path.join(publicHtml, 'index.html'), code);
+    runCmd(`sudo chown -R ${HESTIA_USER}:${HESTIA_USER} ${publicHtml}`);
+
+    // Save code backup
+    const codeDest = path.join(APP_DIR, 'html-code');
+    fs.mkdirSync(codeDest, { recursive: true });
+    fs.writeFileSync(path.join(codeDest, `${name}.html`), code);
+
+    // Update record
+    htmlApps[appIndex].updatedAt = new Date().toISOString();
+    htmlApps[appIndex].deployCount = (htmlApps[appIndex].deployCount || 0) + 1;
+    if (title) htmlApps[appIndex].title = title;
+    saveHtmlApps(htmlApps);
+
+    log(`✅ HTML page updated: https://${domain}`);
+    res.json({ success: true, url: `https://${domain}` });
+
+  } catch (e) {
+    log(`❌ HTML update failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete HTML page
+app.delete('/api/html-apps/:name', auth, (req, res) => {
+  const { name } = req.params;
+  const htmlApps = loadHtmlApps();
+  const appIndex = htmlApps.findIndex(a => a.name === name && a.owner === req.user);
+  if (appIndex === -1) return res.status(404).json({ error: 'HTML page not found' });
+
+  const domain = getDomain(name);
+
+  try {
+    log(`Deleting HTML page: ${name}`);
+    runCmd(`sudo /usr/local/hestia/bin/v-delete-web-domain ${HESTIA_USER} ${domain}`);
+
+    // Remove code backup
+    const codePath = path.join(APP_DIR, 'html-code', `${name}.html`);
+    try { fs.unlinkSync(codePath); } catch {}
+
+    htmlApps.splice(appIndex, 1);
+    saveHtmlApps(htmlApps);
+    log(`✅ HTML page deleted: ${name}`);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get single HTML page + its code
+app.get('/api/html-apps/:name', auth, (req, res) => {
+  const { name } = req.params;
+  const htmlApps = loadHtmlApps();
+  const appData = htmlApps.find(a => a.name === name && a.owner === req.user);
+  if (!appData) return res.status(404).json({ error: 'HTML page not found' });
+
+  const codePath = path.join(APP_DIR, 'html-code', `${name}.html`);
+  let code = '';
+  try { code = fs.readFileSync(codePath, 'utf8'); } catch {}
+
+  res.json({ ...appData, code });
+});
 
 // ============================================
 //  HEALTH CHECK

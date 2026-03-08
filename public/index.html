@@ -127,6 +127,9 @@
     font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
     background: rgba(34,197,94,0.1); color: var(--green);
   }
+  .html-badge {
+    background: rgba(59,130,246,0.1) !important; color: var(--accent) !important;
+  }
   .app-url {
     display: block; font-size: 13px; color: var(--accent);
     text-decoration: none; margin-bottom: 12px; word-break: break-all;
@@ -345,12 +348,14 @@ let state = {
   username: null,
   isAdmin: false,
   authMode: 'login', // 'login' or 'register'
-  activeTab: 'apps', // 'apps' or 'users'
+  activeTab: 'apps', // 'apps', 'html', or 'users'
   apps: [],
+  htmlApps: [],
   users: [],
   loading: false,
   showModal: false,
   modalMode: 'new',
+  modalType: 'react', // 'react' or 'html'
   editApp: null,
   confirmDelete: null,
   confirmDeleteUser: null,
@@ -471,6 +476,63 @@ async function deleteApp(name) {
 async function loadAppCode(name) {
   try {
     const data = await api('/api/apps/' + name);
+    return data.code || '';
+  } catch { return ''; }
+}
+
+// ============================================
+//  HTML APPS FUNCTIONS
+// ============================================
+async function loadHtmlApps() {
+  try { state.htmlApps = await api('/api/html-apps'); }
+  catch { state.htmlApps = []; }
+  render();
+}
+
+async function deployHtmlApp(name, code, title) {
+  state.loading = true; render();
+  showStatus('loading', 'Deploying HTML page ' + name + '...');
+  try {
+    const data = await api('/api/html-apps', { method: 'POST', body: { name, code, title } });
+    showStatus('success', 'Live at ' + data.url);
+    state.showModal = false;
+    await loadHtmlApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+  state.loading = false; render();
+}
+
+async function updateHtmlApp(name, code, title) {
+  state.loading = true; render();
+  showStatus('loading', 'Updating HTML page ' + name + '...');
+  try {
+    const data = await api('/api/html-apps/' + name, { method: 'PUT', body: { code, title } });
+    showStatus('success', 'Updated! ' + data.url);
+    state.showModal = false;
+    state.editApp = null;
+    await loadHtmlApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+  state.loading = false; render();
+}
+
+async function deleteHtmlApp(name) {
+  showStatus('loading', 'Deleting HTML page ' + name + '...');
+  try {
+    await api('/api/html-apps/' + name, { method: 'DELETE' });
+    showStatus('success', name + ' deleted');
+    state.confirmDelete = null;
+    await loadHtmlApps();
+  } catch (e) {
+    showStatus('error', e.message);
+  }
+}
+
+async function loadHtmlAppCode(name) {
+  try {
+    const data = await api('/api/html-apps/' + name);
     return data.code || '';
   } catch { return ''; }
 }
@@ -598,20 +660,25 @@ function renderLogin() {
 
 function renderDashboard() {
   var apps = state.apps;
+  var htmlApps = state.htmlApps;
+  var totalApps = apps.length + htmlApps.length;
   var html = '<div class="header"><h1>\u{1F680} <span>App Deployer</span></h1>' +
     '<p>' + (state.username || '') + (state.isAdmin ? ' &middot; Admin' : '') + '</p></div>' +
-    '<div class="top-bar"><span class="app-count">' + apps.length + ' app' + (apps.length !== 1 ? 's' : '') + ' deployed</span>' +
+    '<div class="top-bar"><span class="app-count">' + totalApps + ' app' + (totalApps !== 1 ? 's' : '') + ' deployed</span>' +
     '<button class="logout-btn" id="logout-btn">Logout</button></div>';
 
-  if (state.isAdmin) {
-    html += '<div class="tab-bar">' +
-      '<button class="tab-btn' + (state.activeTab === 'apps' ? ' active' : '') + '" id="tab-apps">My Apps</button>' +
-      '<button class="tab-btn' + (state.activeTab === 'users' ? ' active' : '') + '" id="tab-users">Users</button>' +
-      '</div>';
-  }
+  // Tab bar - always show My Apps and My HTML, show Users only for admin
+  html += '<div class="tab-bar">' +
+    '<button class="tab-btn' + (state.activeTab === 'apps' ? ' active' : '') + '" id="tab-apps">My Apps</button>' +
+    '<button class="tab-btn' + (state.activeTab === 'html' ? ' active' : '') + '" id="tab-html">My HTML</button>' +
+    (state.isAdmin ? '<button class="tab-btn' + (state.activeTab === 'users' ? ' active' : '') + '" id="tab-users">Users</button>' : '') +
+    '</div>';
 
   if (state.activeTab === 'users' && state.isAdmin) {
     html += renderUsersPanel();
+  } else if (state.activeTab === 'html') {
+    html += (htmlApps.length === 0 ? renderEmptyStateHtml() : renderHtmlAppsList(htmlApps)) +
+      '<button class="fab" id="new-html-btn">+</button>';
   } else {
     html += (apps.length === 0 ? renderEmptyState() : renderAppsList(apps)) +
       '<button class="fab" id="new-app-btn">+</button>';
@@ -623,6 +690,32 @@ function renderDashboard() {
 function renderEmptyState() {
   return '<div class="empty-state"><div class="icon">\u{1F4E6}</div>' +
     '<h3>No apps yet</h3><p>Tap + to deploy your first app</p></div>';
+}
+
+function renderEmptyStateHtml() {
+  return '<div class="empty-state"><div class="icon">\u{1F310}</div>' +
+    '<h3>No HTML pages yet</h3><p>Tap + to deploy your first HTML page</p></div>';
+}
+
+function renderHtmlAppsList(apps) {
+  return '<div class="apps-grid">' + apps.map(renderHtmlAppCard).join('') + '</div>';
+}
+
+function renderHtmlAppCard(app) {
+  var updated = new Date(app.updatedAt).toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+  return '<div class="app-card">' +
+    '<div class="app-card-header"><span class="app-name">' + (app.title || app.name) + '</span>' +
+    '<span class="app-badge html-badge">HTML</span></div>' +
+    '<a class="app-url" href="' + app.url + '" target="_blank">' + app.domain + '</a>' +
+    '<div class="app-meta"><span>Updated: ' + updated + '</span>' +
+    '<span>Deploys: ' + (app.deployCount || 1) + '</span></div>' +
+    '<div class="app-actions">' +
+    '<button class="btn btn-ghost btn-sm edit-html-btn" data-name="' + app.name + '" data-title="' + (app.title || app.name) + '">Edit</button>' +
+    '<button class="btn btn-ghost btn-sm" onclick="window.open(\'' + app.url + '\',\'_blank\')">Open</button>' +
+    '<button class="btn btn-danger btn-sm del-html-btn" data-name="' + app.name + '" data-title="' + (app.title || app.name) + '">Delete</button>' +
+    '</div></div>';
 }
 
 function renderAppsList(apps) {
@@ -678,14 +771,15 @@ function renderUsersPanel() {
 
 function renderModal() {
   var isEdit = state.modalMode === 'edit';
-  var title = isEdit ? 'Update: ' + (state.editApp ? state.editApp.title : '') : 'Deploy New App';
+  var isHtml = state.modalType === 'html';
+  var title = isEdit ? 'Update: ' + (state.editApp ? state.editApp.title : '') : (isHtml ? 'Deploy New HTML Page' : 'Deploy New App');
   var editCode = state.draftCode || (isEdit ? (state.editApp ? state.editApp.code || '' : '') : '');
 
   var nameField = '';
   if (!isEdit) {
-    nameField = '<div class="field"><label>App Name</label>' +
-      '<input type="text" id="app-name" placeholder="e.g. taraweeh" autocomplete="off" pattern="[a-z0-9-]+">' +
-      '<div class="field-hint">Lowercase, no spaces \u2192 becomes appname.heychatmate.com</div></div>';
+    nameField = '<div class="field"><label>' + (isHtml ? 'Page Name' : 'App Name') + '</label>' +
+      '<input type="text" id="app-name" placeholder="e.g. ' + (isHtml ? 'mypage' : 'taraweeh') + '" autocomplete="off" pattern="[a-z0-9-]+">' +
+      '<div class="field-hint">Lowercase, no spaces \u2192 becomes name.heychatmate.com</div></div>';
   }
 
   var toolbar = '<div class="code-toolbar">' +
@@ -700,15 +794,19 @@ function renderModal() {
       'Clear</button>' +
     '</div>';
 
+  var codeLabel = isHtml ? 'HTML Code' : 'React Code';
+  var codePlaceholder = isHtml ? 'Paste your full HTML page here (starting with <!DOCTYPE html>)...' : 'Paste your React component code here...';
+  var codeHint = isHtml ? 'Paste the complete HTML page. It will be deployed as-is.' : 'Paste the full component from Claude (with imports and export default)';
+
   return '<div class="modal-overlay active" id="modal-overlay">' +
     '<div class="modal"><div class="modal-handle"></div>' +
     '<h2>' + title + '</h2>' +
     nameField +
-    '<div class="field"><label>React Code</label>' +
+    '<div class="field"><label>' + codeLabel + '</label>' +
     toolbar +
-    '<textarea id="app-code" placeholder="Paste your React component code here..." oninput="updateCharCount()">' + escapeHtml(editCode) + '</textarea>' +
+    '<textarea id="app-code" placeholder="' + codePlaceholder + '" oninput="updateCharCount()">' + escapeHtml(editCode) + '</textarea>' +
     '<div class="code-char-count" id="char-count">' + (editCode.length > 0 ? editCode.length.toLocaleString() + ' chars' : '') + '</div>' +
-    '<div class="field-hint">Paste the full component from Claude (with imports and export default)</div>' +
+    '<div class="field-hint">' + codeHint + '</div>' +
     '</div>' +
     '<div style="display:flex;gap:10px;margin-top:8px;">' +
     '<button class="btn btn-ghost" id="cancel-modal" style="flex:1">Cancel</button>' +
@@ -779,6 +877,17 @@ function bindEvents() {
   if (newBtn) newBtn.onclick = function() {
     state.showModal = true;
     state.modalMode = 'new';
+    state.modalType = 'react';
+    state.editApp = null;
+    state.draftCode = '';
+    render();
+  };
+
+  var newHtmlBtn = document.getElementById('new-html-btn');
+  if (newHtmlBtn) newHtmlBtn.onclick = function() {
+    state.showModal = true;
+    state.modalMode = 'new';
+    state.modalType = 'html';
     state.editApp = null;
     state.draftCode = '';
     render();
@@ -793,6 +902,22 @@ function bindEvents() {
       state.status = null;
       state.showModal = true;
       state.modalMode = 'edit';
+      state.modalType = 'react';
+      state.editApp = { name: name, title: title, code: code };
+      render();
+    };
+  });
+
+  document.querySelectorAll('.edit-html-btn').forEach(function(btn) {
+    btn.onclick = async function() {
+      var name = btn.dataset.name;
+      var title = btn.dataset.title;
+      showStatus('loading', 'Loading code...');
+      var code = await loadHtmlAppCode(name);
+      state.status = null;
+      state.showModal = true;
+      state.modalMode = 'edit';
+      state.modalType = 'html';
       state.editApp = { name: name, title: title, code: code };
       render();
     };
@@ -800,7 +925,14 @@ function bindEvents() {
 
   document.querySelectorAll('.del-btn').forEach(function(btn) {
     btn.onclick = function() {
-      state.confirmDelete = { name: btn.dataset.name, title: btn.dataset.title };
+      state.confirmDelete = { name: btn.dataset.name, title: btn.dataset.title, type: 'react' };
+      render();
+    };
+  });
+
+  document.querySelectorAll('.del-html-btn').forEach(function(btn) {
+    btn.onclick = function() {
+      state.confirmDelete = { name: btn.dataset.name, title: btn.dataset.title, type: 'html' };
       render();
     };
   });
@@ -819,11 +951,20 @@ function bindEvents() {
     deployBtn.onclick = function() {
       var code = document.getElementById('app-code').value;
       state.draftCode = '';
-      if (state.modalMode === 'edit') {
-        updateApp(state.editApp.name, code, state.editApp.title);
+      if (state.modalType === 'html') {
+        if (state.modalMode === 'edit') {
+          updateHtmlApp(state.editApp.name, code, state.editApp.title);
+        } else {
+          var name = document.getElementById('app-name').value;
+          deployHtmlApp(name, code, name);
+        }
       } else {
-        var name = document.getElementById('app-name').value;
-        deployApp(name, code, name);
+        if (state.modalMode === 'edit') {
+          updateApp(state.editApp.name, code, state.editApp.title);
+        } else {
+          var name = document.getElementById('app-name').value;
+          deployApp(name, code, name);
+        }
       }
     };
   }
@@ -850,11 +991,19 @@ function bindEvents() {
   var cancelDel = document.getElementById('cancel-delete');
   if (cancelDel) cancelDel.onclick = function() { state.confirmDelete = null; render(); };
   var confirmDel = document.getElementById('confirm-delete');
-  if (confirmDel) confirmDel.onclick = function() { deleteApp(state.confirmDelete.name); };
+  if (confirmDel) confirmDel.onclick = function() {
+    if (state.confirmDelete.type === 'html') {
+      deleteHtmlApp(state.confirmDelete.name);
+    } else {
+      deleteApp(state.confirmDelete.name);
+    }
+  };
 
   // Admin tabs
   var tabApps = document.getElementById('tab-apps');
   if (tabApps) tabApps.onclick = function() { state.activeTab = 'apps'; render(); };
+  var tabHtml = document.getElementById('tab-html');
+  if (tabHtml) tabHtml.onclick = function() { state.activeTab = 'html'; loadHtmlApps(); };
   var tabUsers = document.getElementById('tab-users');
   if (tabUsers) tabUsers.onclick = function() { state.activeTab = 'users'; loadUsers(); };
 
@@ -878,7 +1027,10 @@ function bindEvents() {
 
 // INIT
 checkAuth().then(function() {
-  if (state.authenticated) loadApps();
+  if (state.authenticated) {
+    loadApps();
+    loadHtmlApps();
+  }
 });
 </script>
 </body>

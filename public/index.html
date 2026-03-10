@@ -361,6 +361,7 @@ let state = {
   confirmDeleteUser: null,
   status: null,
   draftCode: '',
+  searchQuery: '',
 };
 
 async function api(url, opts = {}) {
@@ -694,10 +695,24 @@ function renderDashboard() {
   if (state.activeTab === 'users' && state.isAdmin) {
     html += renderUsersPanel();
   } else if (state.activeTab === 'html') {
-    html += (htmlApps.length === 0 ? renderEmptyStateHtml() : renderHtmlAppsList(htmlApps)) +
+    // Search bar
+    html += '<div style="margin-bottom:16px"><input type="text" id="search-input" placeholder="Search HTML pages..." value="' + escapeHtml(state.searchQuery) + '" style="padding:10px 14px;font-size:14px;border-radius:10px"></div>';
+    var filtered = htmlApps.filter(function(a) {
+      if (!state.searchQuery) return true;
+      var q = state.searchQuery.toLowerCase();
+      return (a.name && a.name.toLowerCase().includes(q)) || (a.title && a.title.toLowerCase().includes(q)) || (a.domain && a.domain.toLowerCase().includes(q));
+    });
+    html += (filtered.length === 0 ? (state.searchQuery ? '<div class="empty-state"><div class="icon">&#128269;</div><h3>No matches</h3><p>No HTML pages match "' + escapeHtml(state.searchQuery) + '"</p></div>' : renderEmptyStateHtml()) : renderHtmlAppsList(filtered)) +
       '<button class="fab" id="new-html-btn">+</button>';
   } else {
-    html += (apps.length === 0 ? renderEmptyState() : renderAppsList(apps)) +
+    // Search bar
+    html += '<div style="margin-bottom:16px"><input type="text" id="search-input" placeholder="Search apps..." value="' + escapeHtml(state.searchQuery) + '" style="padding:10px 14px;font-size:14px;border-radius:10px"></div>';
+    var filtered = apps.filter(function(a) {
+      if (!state.searchQuery) return true;
+      var q = state.searchQuery.toLowerCase();
+      return (a.name && a.name.toLowerCase().includes(q)) || (a.title && a.title.toLowerCase().includes(q)) || (a.domain && a.domain.toLowerCase().includes(q));
+    });
+    html += (filtered.length === 0 ? (state.searchQuery ? '<div class="empty-state"><div class="icon">&#128269;</div><h3>No matches</h3><p>No apps match "' + escapeHtml(state.searchQuery) + '"</p></div>' : renderEmptyState()) : renderAppsList(filtered)) +
       '<button class="fab" id="new-app-btn">+</button>';
   }
 
@@ -893,6 +908,17 @@ function bindEvents() {
   var logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.onclick = logout;
 
+  var searchInput = document.getElementById('search-input');
+  if (searchInput) {
+    searchInput.oninput = function() {
+      state.searchQuery = searchInput.value;
+      render();
+      // Re-focus search and restore cursor position
+      var si = document.getElementById('search-input');
+      if (si) { si.focus(); si.selectionStart = si.selectionEnd = si.value.length; }
+    };
+  }
+
   var newBtn = document.getElementById('new-app-btn');
   if (newBtn) newBtn.onclick = function() {
     state.showModal = true;
@@ -1023,11 +1049,11 @@ function bindEvents() {
 
   // Admin tabs
   var tabApps = document.getElementById('tab-apps');
-  if (tabApps) tabApps.onclick = function() { state.activeTab = 'apps'; render(); };
+  if (tabApps) tabApps.onclick = function() { state.activeTab = 'apps'; state.searchQuery = ''; render(); };
   var tabHtml = document.getElementById('tab-html');
-  if (tabHtml) tabHtml.onclick = function() { state.activeTab = 'html'; loadHtmlApps(); };
+  if (tabHtml) tabHtml.onclick = function() { state.activeTab = 'html'; state.searchQuery = ''; loadHtmlApps(); };
   var tabUsers = document.getElementById('tab-users');
-  if (tabUsers) tabUsers.onclick = function() { state.activeTab = 'users'; loadUsers(); };
+  if (tabUsers) tabUsers.onclick = function() { state.activeTab = 'users'; state.searchQuery = ''; loadUsers(); };
 
   // Admin user actions
   document.querySelectorAll('.toggle-user-btn').forEach(function(btn) {

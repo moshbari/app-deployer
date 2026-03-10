@@ -340,7 +340,7 @@ app.get('/api/apps', auth, (req, res) => {
 
 // Deploy new app
 app.post('/api/apps', auth, async (req, res) => {
-  const { name: rawName, code, title } = req.body;
+  const { name: rawName, code, title, subdomain: rawSubdomain } = req.body;
   const name = sanitizeName(rawName || '');
 
   if (!name) return res.status(400).json({ error: 'App name is required' });
@@ -353,9 +353,34 @@ app.post('/api/apps', auth, async (req, res) => {
     return res.status(400).json({ error: validation.error });
   }
 
+  // Determine subdomain: use custom subdomain if provided, otherwise use name
+  const subdomainName = rawSubdomain ? sanitizeName(rawSubdomain) : name;
+  if (rawSubdomain && subdomainName.length < 2) {
+    return res.status(400).json({ error: 'Custom subdomain too short (min 2 chars)' });
+  }
+
   const apps = loadApps();
+  const htmlApps = loadHtmlApps();
+
+  // Check if app name already exists
   if (apps.find(a => a.name === name)) {
     return res.status(400).json({ error: `App "${name}" already exists. Use update instead.` });
+  }
+
+  // Check if subdomain is already taken by any app
+  if (apps.find(a => a.subdomain === subdomainName || (!a.subdomain && a.name === subdomainName))) {
+    return res.status(400).json({ error: `Subdomain "${subdomainName}.heychatmate.com" is already taken by another React app.` });
+  }
+  if (htmlApps.find(a => a.subdomain === subdomainName || (!a.subdomain && a.name === subdomainName))) {
+    return res.status(400).json({ error: `Subdomain "${subdomainName}.heychatmate.com" is already taken by an HTML page.` });
+  }
+
+  // Also check if the domain exists in HestiaCP already
+  const checkDomain = getDomain(subdomainName);
+  const domainExists = runCmd(`sudo /usr/local/hestia/bin/v-list-web-domain ${HESTIA_USER} ${checkDomain} 2>/dev/null`);
+  if (domainExists.success && subdomainName !== name) {
+    // Domain exists in HestiaCP but not in our records — might be manually created
+    return res.status(400).json({ error: `Subdomain "${subdomainName}.heychatmate.com" is already in use on the server.` });
   }
 
   if (buildLocks.has(name)) {
@@ -363,11 +388,11 @@ app.post('/api/apps', auth, async (req, res) => {
   }
 
   buildLocks.set(name, true);
-  const domain = getDomain(name);
+  const domain = getDomain(subdomainName);
   const buildDir = `/tmp/deployer-${name}-${Date.now()}`;
 
   try {
-    log(`Deploying new app: ${name} (code length: ${code.length}) → ${domain}`);
+    log(`Deploying new app: ${name} (subdomain: ${subdomainName}, code length: ${code.length}) → ${domain}`);
 
     // 1. Build the React app
     log('Building...');
@@ -398,6 +423,7 @@ app.post('/api/apps', auth, async (req, res) => {
     // 5. Save app record
     apps.push({
       name,
+      subdomain: subdomainName,
       domain,
       title: title || name,
       url: `https://${domain}`,
@@ -594,7 +620,7 @@ app.get('/api/html-apps', auth, (req, res) => {
 
 // Deploy new HTML page
 app.post('/api/html-apps', auth, (req, res) => {
-  const { name: rawName, code, title } = req.body;
+  const { name: rawName, code, title, subdomain: rawSubdomain } = req.body;
   const name = sanitizeName(rawName || '');
 
   if (!name) return res.status(400).json({ error: 'Page name is required' });
@@ -607,20 +633,39 @@ app.post('/api/html-apps', auth, (req, res) => {
     return res.status(400).json({ error: 'Code does not look like HTML. It should start with <!DOCTYPE html> or an HTML tag.' });
   }
 
+  // Determine subdomain: use custom subdomain if provided, otherwise use name
+  const subdomainName = rawSubdomain ? sanitizeName(rawSubdomain) : name;
+  if (rawSubdomain && subdomainName.length < 2) {
+    return res.status(400).json({ error: 'Custom subdomain too short (min 2 chars)' });
+  }
+
   // Check name not taken by React apps or other HTML apps
   const reactApps = loadApps();
   const htmlApps = loadHtmlApps();
-  if (reactApps.find(a => a.name === name)) {
-    return res.status(400).json({ error: `Name "${name}" is already used by a React app.` });
-  }
+
   if (htmlApps.find(a => a.name === name)) {
     return res.status(400).json({ error: `HTML page "${name}" already exists. Use update instead.` });
   }
 
-  const domain = getDomain(name);
+  // Check if subdomain is already taken by any app
+  if (reactApps.find(a => a.subdomain === subdomainName || (!a.subdomain && a.name === subdomainName))) {
+    return res.status(400).json({ error: `Subdomain "${subdomainName}.heychatmate.com" is already taken by a React app.` });
+  }
+  if (htmlApps.find(a => a.subdomain === subdomainName || (!a.subdomain && a.name === subdomainName))) {
+    return res.status(400).json({ error: `Subdomain "${subdomainName}.heychatmate.com" is already taken by another HTML page.` });
+  }
+
+  // Also check if the domain exists in HestiaCP already
+  const checkDomain = getDomain(subdomainName);
+  const domainExists = runCmd(`sudo /usr/local/hestia/bin/v-list-web-domain ${HESTIA_USER} ${checkDomain} 2>/dev/null`);
+  if (domainExists.success && subdomainName !== name) {
+    return res.status(400).json({ error: `Subdomain "${subdomainName}.heychatmate.com" is already in use on the server.` });
+  }
+
+  const domain = getDomain(subdomainName);
 
   try {
-    log(`Deploying new HTML page: ${name} → ${domain}`);
+    log(`Deploying new HTML page: ${name} (subdomain: ${subdomainName}) → ${domain}`);
 
     // 1. Create domain in HestiaCP
     const domainResult = createDomain(domain);
@@ -645,6 +690,7 @@ app.post('/api/html-apps', auth, (req, res) => {
     // 5. Save record
     htmlApps.push({
       name,
+      subdomain: subdomainName,
       domain,
       title: title || name,
       url: `https://${domain}`,

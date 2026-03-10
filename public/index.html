@@ -432,11 +432,13 @@ async function loadApps() {
   render();
 }
 
-async function deployApp(name, code, title) {
+async function deployApp(name, code, title, subdomain) {
   state.loading = true; render();
   showStatus('loading', 'Deploying ' + name + '...');
   try {
-    const data = await api('/api/apps', { method: 'POST', body: { name, code, title } });
+    var body = { name, code, title };
+    if (subdomain) body.subdomain = subdomain;
+    const data = await api('/api/apps', { method: 'POST', body: body });
     showStatus('success', 'Live at ' + data.url);
     state.showModal = false;
     await loadApps();
@@ -489,11 +491,13 @@ async function loadHtmlApps() {
   render();
 }
 
-async function deployHtmlApp(name, code, title) {
+async function deployHtmlApp(name, code, title, subdomain) {
   state.loading = true; render();
   showStatus('loading', 'Deploying HTML page ' + name + '...');
   try {
-    const data = await api('/api/html-apps', { method: 'POST', body: { name, code, title } });
+    var body = { name, code, title };
+    if (subdomain) body.subdomain = subdomain;
+    const data = await api('/api/html-apps', { method: 'POST', body: body });
     showStatus('success', 'Live at ' + data.url);
     state.showModal = false;
     await loadHtmlApps();
@@ -614,6 +618,19 @@ function updateCharCount() {
   if (ta && counter) {
     const len = ta.value.length;
     counter.textContent = len > 0 ? len.toLocaleString() + ' chars' : '';
+  }
+}
+
+function updateSubdomainPreview() {
+  const nameInput = document.getElementById('app-name');
+  const subdomainInput = document.getElementById('app-subdomain');
+  const preview = document.getElementById('subdomain-preview');
+  if (!nameInput || !preview) return;
+  const sub = (subdomainInput && subdomainInput.value.trim()) ? subdomainInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '') : nameInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  if (sub) {
+    preview.textContent = '\u2192 ' + sub + '.heychatmate.com';
+  } else {
+    preview.textContent = '';
   }
 }
 
@@ -778,8 +795,11 @@ function renderModal() {
   var nameField = '';
   if (!isEdit) {
     nameField = '<div class="field"><label>' + (isHtml ? 'Page Name' : 'App Name') + '</label>' +
-      '<input type="text" id="app-name" placeholder="e.g. ' + (isHtml ? 'mypage' : 'taraweeh') + '" autocomplete="off" pattern="[a-z0-9-]+">' +
-      '<div class="field-hint">Lowercase, no spaces \u2192 becomes name.heychatmate.com</div></div>';
+      '<input type="text" id="app-name" placeholder="e.g. ' + (isHtml ? 'mypage' : 'taraweeh') + '" autocomplete="off" pattern="[a-z0-9-]+" oninput="updateSubdomainPreview()">' +
+      '<div class="field-hint">Lowercase, no spaces</div></div>' +
+      '<div class="field"><label>Custom Subdomain <span style="font-weight:400;text-transform:none;color:var(--text2)">(optional)</span></label>' +
+      '<input type="text" id="app-subdomain" placeholder="Leave empty to use the name above" autocomplete="off" pattern="[a-z0-9-]+" oninput="updateSubdomainPreview()">' +
+      '<div class="field-hint" id="subdomain-preview" style="color:var(--accent)"></div></div>';
   }
 
   var toolbar = '<div class="code-toolbar">' +
@@ -950,20 +970,22 @@ function bindEvents() {
   if (deployBtn) {
     deployBtn.onclick = function() {
       var code = document.getElementById('app-code').value;
+      var subdomainInput = document.getElementById('app-subdomain');
+      var subdomain = subdomainInput ? subdomainInput.value.trim() : '';
       state.draftCode = '';
       if (state.modalType === 'html') {
         if (state.modalMode === 'edit') {
           updateHtmlApp(state.editApp.name, code, state.editApp.title);
         } else {
           var name = document.getElementById('app-name').value;
-          deployHtmlApp(name, code, name);
+          deployHtmlApp(name, code, name, subdomain);
         }
       } else {
         if (state.modalMode === 'edit') {
           updateApp(state.editApp.name, code, state.editApp.title);
         } else {
           var name = document.getElementById('app-name').value;
-          deployApp(name, code, name);
+          deployApp(name, code, name, subdomain);
         }
       }
     };

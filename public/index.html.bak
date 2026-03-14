@@ -361,9 +361,6 @@ let state = {
   confirmDeleteUser: null,
   status: null,
   draftCode: '',
-  draftName: '',
-  draftSubdomain: '',
-  deployedUrl: '',
   searchQuery: '',
 };
 
@@ -444,7 +441,7 @@ async function deployApp(name, code, title, subdomain) {
     if (subdomain) body.subdomain = subdomain;
     const data = await api('/api/apps', { method: 'POST', body: body });
     showStatus('success', 'Live at ' + data.url);
-    state.deployedUrl = data.url;
+    state.showModal = false;
     await loadApps();
   } catch (e) {
     showStatus('error', e.message);
@@ -458,7 +455,8 @@ async function updateApp(name, code, title) {
   try {
     const data = await api('/api/apps/' + name, { method: 'PUT', body: { code, title } });
     showStatus('success', 'Updated! ' + data.url);
-    state.deployedUrl = data.url;
+    state.showModal = false;
+    state.editApp = null;
     await loadApps();
   } catch (e) {
     showStatus('error', e.message);
@@ -502,7 +500,7 @@ async function deployHtmlApp(name, code, title, subdomain) {
     if (subdomain) body.subdomain = subdomain;
     const data = await api('/api/html-apps', { method: 'POST', body: body });
     showStatus('success', 'Live at ' + data.url);
-    state.deployedUrl = data.url;
+    state.showModal = false;
     await loadHtmlApps();
   } catch (e) {
     showStatus('error', e.message);
@@ -516,7 +514,8 @@ async function updateHtmlApp(name, code, title) {
   try {
     const data = await api('/api/html-apps/' + name, { method: 'PUT', body: { code, title } });
     showStatus('success', 'Updated! ' + data.url);
-    state.deployedUrl = data.url;
+    state.showModal = false;
+    state.editApp = null;
     await loadHtmlApps();
   } catch (e) {
     showStatus('error', e.message);
@@ -808,21 +807,13 @@ function renderModal() {
   var title = isEdit ? 'Update: ' + (state.editApp ? state.editApp.title : '') : (isHtml ? 'Deploy New HTML Page' : 'Deploy New App');
   var editCode = state.draftCode || (isEdit ? (state.editApp ? state.editApp.code || '' : '') : '');
 
-  var deployedBanner = '';
-  if (state.deployedUrl) {
-    deployedBanner = '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:12px 16px;margin-bottom:16px;text-align:center">' +
-      '<div style="color:var(--green);font-weight:600;font-size:14px;margin-bottom:4px">\u2705 Already deployed!</div>' +
-      '<a href="' + state.deployedUrl + '" target="_blank" style="color:var(--accent);font-size:13px;text-decoration:none">' + state.deployedUrl + '</a>' +
-      '</div>';
-  }
-
   var nameField = '';
   if (!isEdit) {
     nameField = '<div class="field"><label>' + (isHtml ? 'Page Name' : 'App Name') + '</label>' +
-      '<input type="text" id="app-name" placeholder="e.g. ' + (isHtml ? 'mypage' : 'taraweeh') + '" autocomplete="off" pattern="[a-z0-9-]+" oninput="updateSubdomainPreview()" value="' + escapeHtml(state.draftName) + '">' +
+      '<input type="text" id="app-name" placeholder="e.g. ' + (isHtml ? 'mypage' : 'taraweeh') + '" autocomplete="off" pattern="[a-z0-9-]+" oninput="updateSubdomainPreview()">' +
       '<div class="field-hint">Lowercase, no spaces</div></div>' +
       '<div class="field"><label>Custom Subdomain <span style="font-weight:400;text-transform:none;color:var(--text2)">(optional)</span></label>' +
-      '<input type="text" id="app-subdomain" placeholder="Leave empty to use the name above" autocomplete="off" pattern="[a-z0-9-]+" oninput="updateSubdomainPreview()" value="' + escapeHtml(state.draftSubdomain) + '">' +
+      '<input type="text" id="app-subdomain" placeholder="Leave empty to use the name above" autocomplete="off" pattern="[a-z0-9-]+" oninput="updateSubdomainPreview()">' +
       '<div class="field-hint" id="subdomain-preview" style="color:var(--accent)"></div></div>';
   }
 
@@ -845,7 +836,6 @@ function renderModal() {
   return '<div class="modal-overlay active" id="modal-overlay">' +
     '<div class="modal"><div class="modal-handle"></div>' +
     '<h2>' + title + '</h2>' +
-    deployedBanner +
     nameField +
     '<div class="field"><label>' + codeLabel + '</label>' +
     toolbar +
@@ -936,9 +926,6 @@ function bindEvents() {
     state.modalType = 'react';
     state.editApp = null;
     state.draftCode = '';
-    state.draftName = '';
-    state.draftSubdomain = '';
-    state.deployedUrl = '';
     render();
   };
 
@@ -949,9 +936,6 @@ function bindEvents() {
     state.modalType = 'html';
     state.editApp = null;
     state.draftCode = '';
-    state.draftName = '';
-    state.draftSubdomain = '';
-    state.deployedUrl = '';
     render();
   };
 
@@ -966,8 +950,6 @@ function bindEvents() {
       state.modalMode = 'edit';
       state.modalType = 'react';
       state.editApp = { name: name, title: title, code: code };
-      state.draftCode = '';
-      state.deployedUrl = '';
       render();
     };
   });
@@ -983,8 +965,6 @@ function bindEvents() {
       state.modalMode = 'edit';
       state.modalType = 'html';
       state.editApp = { name: name, title: title, code: code };
-      state.draftCode = '';
-      state.deployedUrl = '';
       render();
     };
   });
@@ -1006,11 +986,11 @@ function bindEvents() {
   var modalOverlay = document.getElementById('modal-overlay');
   if (modalOverlay) {
     modalOverlay.onclick = function(e) {
-      if (e.target === modalOverlay) { state.showModal = false; state.editApp = null; state.draftCode = ''; state.draftName = ''; state.draftSubdomain = ''; state.deployedUrl = ''; render(); }
+      if (e.target === modalOverlay) { state.showModal = false; state.editApp = null; state.draftCode = ''; render(); }
     };
   }
   var cancelModal = document.getElementById('cancel-modal');
-  if (cancelModal) cancelModal.onclick = function() { state.showModal = false; state.editApp = null; state.draftCode = ''; state.draftName = ''; state.draftSubdomain = ''; state.deployedUrl = ''; render(); };
+  if (cancelModal) cancelModal.onclick = function() { state.showModal = false; state.editApp = null; state.draftCode = ''; render(); };
 
   var deployBtn = document.getElementById('deploy-btn');
   if (deployBtn) {
@@ -1018,23 +998,19 @@ function bindEvents() {
       var code = document.getElementById('app-code').value;
       var subdomainInput = document.getElementById('app-subdomain');
       var subdomain = subdomainInput ? subdomainInput.value.trim() : '';
-      var nameInput = document.getElementById('app-name');
-      // Save all inputs to state so they survive re-renders
-      state.draftCode = code;
-      if (nameInput) state.draftName = nameInput.value;
-      if (subdomainInput) state.draftSubdomain = subdomainInput.value;
+      state.draftCode = '';
       if (state.modalType === 'html') {
         if (state.modalMode === 'edit') {
           updateHtmlApp(state.editApp.name, code, state.editApp.title);
         } else {
-          var name = nameInput ? nameInput.value : '';
+          var name = document.getElementById('app-name').value;
           deployHtmlApp(name, code, name, subdomain);
         }
       } else {
         if (state.modalMode === 'edit') {
           updateApp(state.editApp.name, code, state.editApp.title);
         } else {
-          var name = nameInput ? nameInput.value : '';
+          var name = document.getElementById('app-name').value;
           deployApp(name, code, name, subdomain);
         }
       }
@@ -1046,20 +1022,6 @@ function bindEvents() {
   if (appCodeTa) {
     appCodeTa.addEventListener('input', function() {
       state.draftCode = appCodeTa.value;
-    });
-  }
-
-  // Keep name and subdomain in sync with state
-  var appNameInput = document.getElementById('app-name');
-  if (appNameInput) {
-    appNameInput.addEventListener('input', function() {
-      state.draftName = appNameInput.value;
-    });
-  }
-  var appSubdomainInput = document.getElementById('app-subdomain');
-  if (appSubdomainInput) {
-    appSubdomainInput.addEventListener('input', function() {
-      state.draftSubdomain = appSubdomainInput.value;
     });
   }
 
@@ -1109,9 +1071,6 @@ function bindEvents() {
   if (cancelDelUser) cancelDelUser.onclick = function() { state.confirmDeleteUser = null; render(); };
   var confirmDelUser = document.getElementById('confirm-delete-user');
   if (confirmDelUser) confirmDelUser.onclick = function() { deleteUser(state.confirmDeleteUser.username); };
-
-  // Update subdomain preview after render (in case values were restored from state)
-  updateSubdomainPreview();
 }
 
 // INIT

@@ -721,10 +721,10 @@ app.put('/api/html-apps/:name', auth, (req, res) => {
   const appIndex = htmlApps.findIndex(a => a.name === name && a.owner === req.user);
   if (appIndex === -1) return res.status(404).json({ error: 'HTML page not found' });
 
-  const domain = getDomain(name);
+  const domain = htmlApps[appIndex].domain || getDomain(name);
 
   try {
-    log(`Updating HTML page: ${name}`);
+    log(`Updating HTML page: ${name} → ${domain}`);
 
     // Write HTML directly to public_html
     const publicHtml = getPublicHtml(domain);
@@ -759,10 +759,10 @@ app.delete('/api/html-apps/:name', auth, (req, res) => {
   const appIndex = htmlApps.findIndex(a => a.name === name && a.owner === req.user);
   if (appIndex === -1) return res.status(404).json({ error: 'HTML page not found' });
 
-  const domain = getDomain(name);
+  const domain = htmlApps[appIndex].domain || getDomain(name);
 
   try {
-    log(`Deleting HTML page: ${name}`);
+    log(`Deleting HTML page: ${name} → ${domain}`);
     runCmd(`sudo /usr/local/hestia/bin/v-delete-web-domain ${HESTIA_USER} ${domain}`);
 
     // Remove code backup
